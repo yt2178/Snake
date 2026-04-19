@@ -1,0 +1,57 @@
+<resources>
+    <string name="app_name">Snake Pro</string>
+
+    <!-- Menu -->
+    <string name="menu_title_heb">תפריט סנייק</string>
+    <string name="menu_title_eng">Snake Menu</string>
+    <string name="menu_continue_heb">המשך</string>
+    <string name="menu_continue_eng">Continue</string>
+    <string name="menu_new_game_heb">משחק חדש</string>
+    <string name="menu_new_game_eng">New Game</string>
+    <string name="menu_maps_heb">מפות</string>
+    <string name="menu_maps_eng">Maps</string>
+    <string name="menu_speed_heb">מהירות</string>
+    <string name="menu_speed_eng">Speed</string>
+    <string name="menu_settings_heb">הגדרות</string>
+    <string name="menu_settings_eng">Settings</string>
+    <string name="menu_high_score_heb">שיא</string>
+    <string name="menu_high_score_eng">High Score</string>
+    <string name="menu_about_heb">אודות</string>
+    <string name="menu_about_eng">About</string>
+
+    <!-- Buttons -->
+    <string name="btn_select_heb">בחר</string>
+    <string name="btn_select_eng">Select</string>
+    <string name="btn_back_heb">חזור</string>
+    <string name="btn_back_eng">Back</string>
+    <string name="btn_retry_heb">שוב</string>
+    <string name="btn_retry_eng">Retry</string>
+    <string name="btn_change_heb">שנה</string>
+    <string name="btn_change_eng">Change</string>
+
+    <!-- Game States -->
+    <string name="game_over_heb">המשחק נגמר</string>
+    <string name="game_over_eng">Game Over</string>
+    <string name="paused_heb">השהה</string>
+    <string name="paused_eng">Paused</string>
+
+    <!-- Labels -->
+    <string name="score_label_heb">ניקוד: </string>
+    <string name="score_label_eng">Score: </string>
+    <string name="best_score_heb">שיא אישי: </string>
+    <string name="best_score_eng">Best Score: </string>
+    <string name="new_record_heb">!שיא חדש!</string>
+    <string name="new_record_eng">!NEW RECORD!</string>
+    <string name="select_map_heb">בחר מפה</string>
+    <string name="select_map_eng">Select Map</string>
+
+    <!-- Settings -->
+    <string name="lang_label_heb">שפה: עברית</string>
+    <string name="lang_label_eng">Language: English</string>
+    <string name="vibration_label_heb">רטט: </string>
+    <string name="vibration_label_eng">Vibration: </string>
+    <string name="on_heb">פעיל</string>
+    <string name="on_eng">ON</string>
+    <string name="off_heb">כבוי</string>
+    <string name="off_eng">OFF</string>
+</resources>

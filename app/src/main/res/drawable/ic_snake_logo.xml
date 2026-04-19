@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- רקע כהה -->
+    <path
+        android:fillColor="#001a33"
+        android:pathData="M0,0h100v100h-100z" />
+    <!-- גוף הנחש -->
+    <path
+        android:fillColor="#00bcd4"
+        android:pathData="M20,50 Q35,30 50,50 Q65,70 80,50"
+        android:strokeColor="#00bcd4"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+    <!-- ראש הנחש -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M75,45 a5,5 0 1,1 10,0 a5,5 0 1,1 -10,0" />
+    <!-- עין -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M81,44 a1.5,1.5 0 1,1 3,0 a1.5,1.5 0 1,1 -3,0" />
+</vector>
