@@ -37,4 +37,4 @@ A professional Nokia-style Snake game optimized for **Android 4.4 (KitKat)** and
 3. Build and run on an emulator or a physical device (API 19+).
 
 ---
-Developed by **Yedidya** as a tribute to the classic mobile gaming era.
+Developed by **The Creator YT** as a tribute to the classic mobile gaming era.

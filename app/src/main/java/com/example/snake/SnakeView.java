@@ -605,6 +605,7 @@ public class SnakeView extends SurfaceView implements Runnable {
         drawNokiaHeader(canvas, t(R.string.menu_about_heb, R.string.menu_about_eng));
         paint.setColor(Color.WHITE); paint.setTextSize(SNAKE_SIZE * 0.8f);
         canvas.drawText("Snake Pro Nokia Style", SNAKE_SIZE, SNAKE_SIZE * 4, paint);
+        canvas.drawText("Developed by The Creator YT", SNAKE_SIZE, SNAKE_SIZE * 6, paint);
         drawNokiaFooter(canvas, null);
     }
 
