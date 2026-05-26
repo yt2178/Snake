@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Build;
 import android.os.Vibrator;
-import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -54,7 +53,7 @@ public class SnakeView extends SurfaceView implements Runnable {
     private boolean isNewHighScoreSession = false;
 
     private int score = 0;
-    private int highScore;
+    private final List<Integer> highScores = new ArrayList<>();
     private final ArrayList<int[]> snakeParts;
     private final List<int[]> obstacles = new ArrayList<>();
     private final SharedPreferences prefs;
@@ -71,7 +70,7 @@ public class SnakeView extends SurfaceView implements Runnable {
         paint.setAntiAlias(true);
 
         prefs = context.getSharedPreferences("SnakeGame", Context.MODE_PRIVATE);
-        highScore = prefs.getInt("high_score", 0);
+        loadHighScores();
         vibrationEnabled = prefs.getBoolean("vibration_enabled", true);
         speedLevel = prefs.getInt("speed_level", 4);
         currentMap = MapType.values()[prefs.getInt("map_type", 0)];
@@ -97,10 +96,19 @@ public class SnakeView extends SurfaceView implements Runnable {
             wm.getDefaultDisplay().getMetrics(metrics);
             screenWidth = metrics.widthPixels;
             screenHeight = metrics.heightPixels;
-            int numCols = 15;
+            
+            // חישוב גודל הנחש בצורה דינמית כדי שיתאים לכל סוגי המסכים:
+            // ב-Qin 1S+ (240px) נקבל 20px למשבצת.
+            // ב-Jelly 2 (480px) נקבל 40px למשבצת.
+            // זה שומר על יחס של 12 עמודות לכל אורך הדרך.
+            int numCols = 12; 
             SNAKE_SIZE = screenWidth / numCols;
+            
+            // הגדרת שטח המשחק האפקטיבי (מחושב לפי משבצות שלמות)
+            // נשאיר מקום של 2 משבצות ל-Header ומשבצת וחצי ל-Footer
             effectiveWidth = screenWidth;
-            effectiveHeight = screenHeight;
+            int rowsInScreen = screenHeight / SNAKE_SIZE;
+            effectiveHeight = (rowsInScreen - 4) * SNAKE_SIZE; 
         }
     }
 
@@ -109,36 +117,63 @@ public class SnakeView extends SurfaceView implements Runnable {
         int cols = effectiveWidth / SNAKE_SIZE;
         int rows = effectiveHeight / SNAKE_SIZE;
         switch (currentMap) {
-            case TUNNEL:
-                for (int i = cols / 4; i < 3 * cols / 4; i++) {
-                    obstacles.add(new int[]{i * SNAKE_SIZE, (rows / 3) * SNAKE_SIZE});
-                    obstacles.add(new int[]{i * SNAKE_SIZE, (2 * rows / 3) * SNAKE_SIZE});
+            case BOX: {
+                // קירות מסביב לכל הגבולות
+                for (int i = 0; i < cols; i++) {
+                    obstacles.add(new int[]{i * SNAKE_SIZE, 0});
+                    obstacles.add(new int[]{i * SNAKE_SIZE, (rows - 1) * SNAKE_SIZE});
+                }
+                for (int i = 1; i < rows - 1; i++) {
+                    obstacles.add(new int[]{0, i * SNAKE_SIZE});
+                    obstacles.add(new int[]{(cols - 1) * SNAKE_SIZE, i * SNAKE_SIZE});
                 }
                 break;
-            case MILL:
-                int midX = cols / 2; int midY = rows / 2;
+            }
+            case TUNNEL: {
+                // שתי מנהרות אנכיות
+                int gap = rows / 4;
+                for (int i = 0; i < rows; i++) {
+                    if (i < gap || i > rows - gap) continue;
+                    obstacles.add(new int[]{(cols / 3) * SNAKE_SIZE, i * SNAKE_SIZE});
+                    obstacles.add(new int[]{(2 * cols / 3) * SNAKE_SIZE, i * SNAKE_SIZE});
+                }
+                break;
+            }
+            case MILL: {
+                // צורת X במרכז
+                int midX = cols / 2;
+                int midY = rows / 2;
                 for (int i = -4; i <= 4; i++) {
+                    if (i == 0) continue; // פתח במרכז ה-X
                     obstacles.add(new int[]{(midX + i) * SNAKE_SIZE, (midY + i) * SNAKE_SIZE});
                     obstacles.add(new int[]{(midX + i) * SNAKE_SIZE, (midY - i) * SNAKE_SIZE});
                 }
                 break;
-            case RAILS:
-                for (int i = 0; i < cols; i++) {
-                    if (i % 4 != 0) {
-                        obstacles.add(new int[]{i * SNAKE_SIZE, (rows / 4) * SNAKE_SIZE});
-                        obstacles.add(new int[]{i * SNAKE_SIZE, (3 * rows / 4) * SNAKE_SIZE});
+            }
+            case RAILS: {
+                // מסילות אופקיות
+                for (int r = 1; r < rows; r += 4) {
+                    for (int c = 2; c < cols - 2; c++) {
+                        if (c % 5 == 0) continue; // פתחים במסילות
+                        obstacles.add(new int[]{c * SNAKE_SIZE, r * SNAKE_SIZE});
                     }
                 }
                 break;
-            case APARTMENT:
+            }
+            case APARTMENT: {
+                // חלוקה ל-4 חדרים
                 for (int i = 0; i < rows; i++) {
-                    if (i != rows/2 && i != rows/2-1) obstacles.add(new int[]{(cols/2) * SNAKE_SIZE, i * SNAKE_SIZE});
+                    if (i != rows / 4 && i != 3 * rows / 4)
+                        obstacles.add(new int[]{(cols / 2) * SNAKE_SIZE, i * SNAKE_SIZE});
                 }
                 for (int i = 0; i < cols; i++) {
-                    if (i != cols/2 && i != cols/2-1) obstacles.add(new int[]{i * SNAKE_SIZE, (rows/2) * SNAKE_SIZE});
+                    if (i != cols / 4 && i != 3 * cols / 4)
+                        obstacles.add(new int[]{i * SNAKE_SIZE, (rows / 2) * SNAKE_SIZE});
                 }
                 break;
-            default: break;
+            }
+            default:
+                break;
         }
     }
 
@@ -147,13 +182,13 @@ public class SnakeView extends SurfaceView implements Runnable {
         snakeY = (effectiveHeight / 2) / SNAKE_SIZE * SNAKE_SIZE;
         isSpecialFoodActive = false;
         initMap();
-        spawnFood();
         currentDirection = 3;
         directionQueue.clear();
         score = 0;
         isNewHighScoreSession = false;
         snakeParts.clear();
         snakeParts.add(new int[]{snakeX, snakeY});
+        spawnFood(); // הזזה לאחר אתחול חלקי הנחש כדי למנוע הופעת תפוח מתחת לנחש
         isResumable = true;
     }
 
@@ -174,7 +209,7 @@ public class SnakeView extends SurfaceView implements Runnable {
     private void spawnSpecialFood() {
         boolean valid;
         isSpecialFoodActive = true;
-        specialFoodTimer = 45; // כ-3.5 שניות (תלוי במהירות)
+        specialFoodTimer = 5000; // 5 שניות בדיוק
         float cols = (float) effectiveWidth / SNAKE_SIZE;
         float rows = (float) effectiveHeight / SNAKE_SIZE;
         do {
@@ -199,7 +234,7 @@ public class SnakeView extends SurfaceView implements Runnable {
     private void update() {
         if (currentState != GameState.PLAYING) return;
         
-        saveGameState(); // שמירה אוטומטית בכל צעד
+        int moveDelay = Math.max(40, 200 - (speedLevel * 20));
         
         if (!directionQueue.isEmpty()) {
             Integer nextDir = directionQueue.poll();
@@ -229,7 +264,7 @@ public class SnakeView extends SurfaceView implements Runnable {
         snakeParts.add(0, new int[]{snakeX, snakeY});
         
         // בדיקת אכילת אוכל רגיל
-        if (Math.abs(snakeX - foodX) < SNAKE_SIZE && Math.abs(snakeY - foodY) < SNAKE_SIZE) {
+        if (snakeX == foodX && snakeY == foodY) {
             score += 1;
             vibrate(40);
             checkHighScore();
@@ -241,8 +276,9 @@ public class SnakeView extends SurfaceView implements Runnable {
             }
         } 
         // בדיקת אכילת אוכל מיוחד
-        else if (isSpecialFoodActive && Math.abs(snakeX - specialFoodX) < SNAKE_SIZE && Math.abs(snakeY - specialFoodY) < SNAKE_SIZE) {
-            score += 5;
+        else if (isSpecialFoodActive && snakeX == specialFoodX && snakeY == specialFoodY) {
+            int bonus = Math.max(1, (int) Math.ceil(specialFoodTimer / 1000.0));
+            score += bonus;
             vibrate(80);
             checkHighScore();
             isSpecialFoodActive = false;
@@ -252,18 +288,57 @@ public class SnakeView extends SurfaceView implements Runnable {
         }
 
         if (isSpecialFoodActive) {
-            specialFoodTimer--;
+            specialFoodTimer -= moveDelay;
             if (specialFoodTimer <= 0) {
                 isSpecialFoodActive = false;
             }
         }
     }
 
+    private void loadHighScores() {
+        highScores.clear();
+        String scoresStr = prefs.getString("high_scores_list", "");
+        if (scoresStr.isEmpty()) {
+            // טעינת שיא ישן אם קיים לצורך תאימות
+            int oldScore = prefs.getInt("high_score", 0);
+            if (oldScore > 0) highScores.add(oldScore);
+        } else {
+            String[] parts = scoresStr.split(",");
+            for (String s : parts) {
+                try {
+                    highScores.add(Integer.parseInt(s));
+                } catch (NumberFormatException e) {
+                    // התעלמות משגיאות פורמט
+                }
+            }
+        }
+    }
+
+    private void saveHighScores() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < highScores.size(); i++) {
+            sb.append(highScores.get(i));
+            if (i < highScores.size() - 1) sb.append(",");
+        }
+        prefs.edit().putString("high_scores_list", sb.toString()).apply();
+    }
+
     private void checkHighScore() {
-        if (score > highScore) { 
-            if (!isNewHighScoreSession && score > 0) isNewHighScoreSession = true;
-            highScore = score; 
-            prefs.edit().putInt("high_score", highScore).apply(); 
+        if (score <= 0) return;
+        
+        boolean added = false;
+        if (highScores.size() < 5) {
+            highScores.add(score);
+            added = true;
+        } else if (score > highScores.get(highScores.size() - 1)) {
+            highScores.set(highScores.size() - 1, score);
+            added = true;
+        }
+
+        if (added) {
+            java.util.Collections.sort(highScores, java.util.Collections.reverseOrder());
+            saveHighScores();
+            if (score >= highScores.get(0)) isNewHighScoreSession = true;
         }
     }
 
@@ -347,33 +422,70 @@ public class SnakeView extends SurfaceView implements Runnable {
     }
 
     private void drawNokiaHeader(Canvas canvas, String title) {
-        // גראדיאנט עדין לכותרת
+        // גראדיאנט יוקרתי לכותרת
+        android.graphics.LinearGradient gradient = new android.graphics.LinearGradient(
+            0, 0, 0, SNAKE_SIZE * 2f,
+            Color.parseColor("#00bcd4"), Color.parseColor("#008b9a"),
+            android.graphics.Shader.TileMode.CLAMP
+        );
+        paint.setShader(gradient);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.parseColor("#008b9a"));
-        canvas.drawRect(0, 0, screenWidth, SNAKE_SIZE * 2, paint);
-        paint.setColor(Color.parseColor("#00bcd4"));
-        canvas.drawRect(0, 0, screenWidth, SNAKE_SIZE * 1.8f, paint);
+        canvas.drawRect(0, 0, screenWidth, SNAKE_SIZE * 2f, paint);
+        paint.setShader(null);
+
+        // קו הפרדה דק בתחתית הכותרת
+        paint.setColor(Color.parseColor("#004d40"));
+        paint.setStrokeWidth(2);
+        canvas.drawLine(0, SNAKE_SIZE * 2f, screenWidth, SNAKE_SIZE * 2f, paint);
         
         paint.setColor(Color.WHITE);
         paint.setTextSize(SNAKE_SIZE * 0.9f);
         paint.setFakeBoldText(true);
-        canvas.drawText(title, SNAKE_SIZE * 0.5f, SNAKE_SIZE * 1.3f, paint);
+        paint.setShadowLayer(3, 1, 1, Color.BLACK); // הוספת צל עדין לטקסט
+        
+        float xPos = (currentLanguage == Language.HEBREW) ? 
+                     screenWidth - paint.measureText(title) - SNAKE_SIZE * 0.5f : 
+                     SNAKE_SIZE * 0.5f;
+                     
+        canvas.drawText(title, xPos, SNAKE_SIZE * 1.3f, paint);
+        paint.clearShadowLayer();
         paint.setFakeBoldText(false);
     }
 
     private void drawNokiaFooter(Canvas canvas, String leftBtn) {
         paint.setColor(Color.parseColor("#4da6ff"));
         paint.setTextSize(SNAKE_SIZE * 1.1f);
-        if (leftBtn != null) canvas.drawText(leftBtn, SNAKE_SIZE, screenHeight - SNAKE_SIZE, paint);
-        canvas.drawText(t(R.string.btn_back_heb, R.string.btn_back_eng), screenWidth - SNAKE_SIZE * 4, screenHeight - SNAKE_SIZE, paint);
+        
+        String backBtn = t(R.string.btn_back_heb, R.string.btn_back_eng);
+        
+        if (currentLanguage == Language.HEBREW) {
+            // בעברית: Select/Change בימין, Back בשמאל
+            if (leftBtn != null) canvas.drawText(leftBtn, screenWidth - paint.measureText(leftBtn) - SNAKE_SIZE, screenHeight - SNAKE_SIZE, paint);
+            canvas.drawText(backBtn, SNAKE_SIZE, screenHeight - SNAKE_SIZE, paint);
+        } else {
+            // באנגלית: Select/Change בשמאל, Back בימין
+            if (leftBtn != null) canvas.drawText(leftBtn, SNAKE_SIZE, screenHeight - SNAKE_SIZE, paint);
+            canvas.drawText(backBtn, screenWidth - paint.measureText(backBtn) - SNAKE_SIZE, screenHeight - SNAKE_SIZE, paint);
+        }
     }
 
     private void drawMenu(Canvas canvas) {
-        // ציור לוגו סנייק מעוצב (ציור וקטורי של נחש)
+        // רקע מדורג למסך התפריט
+        android.graphics.LinearGradient bgGradient = new android.graphics.LinearGradient(
+            0, 0, 0, screenHeight,
+            Color.parseColor("#001a33"), Color.parseColor("#000d1a"),
+            android.graphics.Shader.TileMode.CLAMP
+        );
+        paint.setShader(bgGradient);
+        canvas.drawRect(0, 0, screenWidth, screenHeight, paint);
+        paint.setShader(null);
+
+        // ציור לוגו סנייק מעוצב
         float logoY = SNAKE_SIZE * 2.5f;
         paint.setColor(Color.parseColor("#00bcd4"));
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(SNAKE_SIZE / 3f);
+        paint.setStrokeWidth(SNAKE_SIZE / 4f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
         
         android.graphics.Path path = new android.graphics.Path();
         path.moveTo(screenWidth * 0.2f, logoY);
@@ -385,8 +497,10 @@ public class SnakeView extends SurfaceView implements Runnable {
         paint.setColor(Color.WHITE);
         paint.setTextSize(SNAKE_SIZE * 1.5f);
         paint.setFakeBoldText(true);
+        paint.setShadowLayer(5, 2, 2, Color.BLACK);
         String title = "SNAKE PRO";
         canvas.drawText(title, screenWidth / 2f - paint.measureText(title) / 2f, logoY + SNAKE_SIZE * 2.2f, paint);
+        paint.clearShadowLayer();
         paint.setFakeBoldText(false);
 
         ArrayList<String> items = new ArrayList<>();
@@ -402,13 +516,22 @@ public class SnakeView extends SurfaceView implements Runnable {
         float menuStartY = logoY + SNAKE_SIZE * 4.5f;
         for (int i = 0; i < items.size(); i++) {
             if (i == selectedMenuItem) {
+                // מסגרת בחירה מעוגלת וזוהרת
                 paint.setColor(Color.parseColor("#3399FF"));
-                canvas.drawRect(0, menuStartY - SNAKE_SIZE + (i * SNAKE_SIZE * 1.5f), screenWidth, menuStartY + SNAKE_SIZE * 0.5f + (i * SNAKE_SIZE * 1.5f), paint);
+                drawRoundRectCompat(canvas, SNAKE_SIZE * 0.5f, menuStartY - SNAKE_SIZE + (i * SNAKE_SIZE * 1.5f), 
+                                  screenWidth - SNAKE_SIZE * 0.5f, menuStartY + SNAKE_SIZE * 0.5f + (i * SNAKE_SIZE * 1.5f), 15, paint);
                 paint.setColor(Color.BLACK);
             } else {
                 paint.setColor(Color.WHITE);
             }
-            canvas.drawText(items.get(i), screenWidth - paint.measureText(items.get(i)) - SNAKE_SIZE, menuStartY + (i * SNAKE_SIZE * 1.5f), paint);
+            
+            float xPos;
+            if (currentLanguage == Language.HEBREW) {
+                xPos = screenWidth - paint.measureText(items.get(i)) - SNAKE_SIZE * 1.5f;
+            } else {
+                xPos = SNAKE_SIZE * 1.5f;
+            }
+            canvas.drawText(items.get(i), xPos, menuStartY + (i * SNAKE_SIZE * 1.5f), paint);
         }
         drawNokiaFooter(canvas, t(R.string.btn_select_heb, R.string.btn_select_eng));
     }
@@ -422,7 +545,12 @@ public class SnakeView extends SurfaceView implements Runnable {
                 canvas.drawRect(0, SNAKE_SIZE * 2.5f + (i * SNAKE_SIZE * 1.5f), screenWidth, SNAKE_SIZE * 4 + (i * SNAKE_SIZE * 1.5f), paint);
                 paint.setColor(Color.WHITE);
             } else paint.setColor(Color.WHITE);
-            canvas.drawText(maps[i].name(), SNAKE_SIZE, SNAKE_SIZE * 3.5f + (i * SNAKE_SIZE * 1.5f), paint);
+            
+            float xPos = (currentLanguage == Language.HEBREW) ? 
+                         screenWidth - paint.measureText(maps[i].name()) - SNAKE_SIZE : 
+                         SNAKE_SIZE;
+            
+            canvas.drawText(maps[i].name(), xPos, SNAKE_SIZE * 3.5f + (i * SNAKE_SIZE * 1.5f), paint);
         }
         drawNokiaFooter(canvas, t(R.string.btn_select_heb, R.string.btn_select_eng));
     }
@@ -430,7 +558,7 @@ public class SnakeView extends SurfaceView implements Runnable {
     private void drawSpeedSelect(Canvas canvas) {
         drawNokiaHeader(canvas, t(R.string.menu_speed_heb, R.string.menu_speed_eng));
         float barW = screenWidth * 0.8f; float segW = barW / 8;
-        float sX = (screenWidth - barW) / 2; float sY = screenHeight / 2 - SNAKE_SIZE;
+        float sX = (screenWidth - barW) / 2f; float sY = screenHeight / 2f - SNAKE_SIZE;
         for (int i = 0; i < 8; i++) {
             paint.setColor(i <= speedLevel ? Color.GREEN : Color.parseColor("#003366"));
             canvas.drawRect(sX + (i * segW) + 2, sY, sX + ((i + 1) * segW) - 2, sY + SNAKE_SIZE * 2, paint);
@@ -440,172 +568,263 @@ public class SnakeView extends SurfaceView implements Runnable {
 
     private void drawSettings(Canvas canvas) {
         drawNokiaHeader(canvas, t(R.string.menu_settings_heb, R.string.menu_settings_eng));
-        paint.setTextSize(SNAKE_SIZE * 0.9f); paint.setColor(Color.WHITE);
-        canvas.drawText(t(R.string.lang_label_heb, R.string.lang_label_eng), SNAKE_SIZE, SNAKE_SIZE * 4, paint);
+        
+        // סימון פריט נבחר בהגדרות
+        paint.setColor(Color.parseColor("#3399FF"));
+        float highlightY = (selectedMenuItem == 0) ? SNAKE_SIZE * 3.2f : SNAKE_SIZE * 5.2f;
+        canvas.drawRect(0, highlightY, screenWidth, highlightY + SNAKE_SIZE * 1.5f, paint);
+
+        paint.setTextSize(SNAKE_SIZE * 0.9f); 
+        
+        String langText = t(R.string.lang_label_heb, R.string.lang_label_eng);
         String vibStatus = vibrationEnabled ? t(R.string.on_heb, R.string.on_eng) : t(R.string.off_heb, R.string.off_eng);
-        canvas.drawText(t(R.string.vibration_label_heb, R.string.vibration_label_eng) + vibStatus, SNAKE_SIZE, SNAKE_SIZE * 6, paint);
+        String vibText = t(R.string.vibration_label_heb, R.string.vibration_label_eng) + vibStatus;
+
+        if (currentLanguage == Language.HEBREW) {
+            paint.setColor(selectedMenuItem == 0 ? Color.BLACK : Color.WHITE);
+            canvas.drawText(langText, screenWidth - paint.measureText(langText) - SNAKE_SIZE, SNAKE_SIZE * 4.2f, paint);
+            paint.setColor(selectedMenuItem == 1 ? Color.BLACK : Color.WHITE);
+            canvas.drawText(vibText, screenWidth - paint.measureText(vibText) - SNAKE_SIZE, SNAKE_SIZE * 6.2f, paint);
+        } else {
+            paint.setColor(selectedMenuItem == 0 ? Color.BLACK : Color.WHITE);
+            canvas.drawText(langText, SNAKE_SIZE, SNAKE_SIZE * 4.2f, paint);
+            paint.setColor(selectedMenuItem == 1 ? Color.BLACK : Color.WHITE);
+            canvas.drawText(vibText, SNAKE_SIZE, SNAKE_SIZE * 6.2f, paint);
+        }
+        
         drawNokiaFooter(canvas, t(R.string.btn_change_heb, R.string.btn_change_eng));
     }
 
     private void drawGame(Canvas canvas) {
-        canvas.drawColor(Color.parseColor("#001a33"));
+        // שטח המשחק מתחיל מתחת ל-Header (כ-2 שורות של SNAKE_SIZE)
+        float gameStartY = SNAKE_SIZE * 2f;
         
-        // ציור גריד עדין
-        paint.setColor(Color.parseColor("#00264d"));
-        paint.setStrokeWidth(1);
-        for(int i=0; i<=effectiveWidth; i+=SNAKE_SIZE) canvas.drawLine(i, 0, i, effectiveHeight, paint);
-        for(int i=0; i<=effectiveHeight; i+=SNAKE_SIZE) canvas.drawLine(0, i, effectiveWidth, i, paint);
+        canvas.save();
+        canvas.translate(0, gameStartY);
 
-        // ציור מכשולים עם אפקט תלת-ממד (Bevel)
-        for (int[] wall : obstacles) {
-            paint.setColor(Color.parseColor("#004d99"));
-            drawRoundRectCompat(canvas, wall[0] + 2, wall[1] + 2, wall[0] + SNAKE_SIZE - 2, wall[1] + SNAKE_SIZE - 2, 4, paint);
-            paint.setColor(Color.parseColor("#0066cc")); // אור
-            canvas.drawRect(wall[0] + 2, wall[1] + 2, wall[0] + SNAKE_SIZE - 2, wall[1] + 6, paint);
+        // ציור רקע המשבצות (כמו בתמונה)
+        for (int c = 0; c < screenWidth / SNAKE_SIZE; c++) {
+            for (int r = 0; r < effectiveHeight / SNAKE_SIZE; r++) {
+                // גיוון עדין בצבע הכחול של המשבצות למראה טקסטורלי
+                if ((c + r) % 2 == 0) paint.setColor(Color.parseColor("#001a33"));
+                else paint.setColor(Color.parseColor("#00152b"));
+                canvas.drawRect(c * SNAKE_SIZE, r * SNAKE_SIZE, (c + 1) * SNAKE_SIZE, (r + 1) * SNAKE_SIZE, paint);
+                
+                // מסגרת עדינה לכל משבצת
+                paint.setColor(Color.parseColor("#00264d"));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(1);
+                canvas.drawRect(c * SNAKE_SIZE, r * SNAKE_SIZE, (c + 1) * SNAKE_SIZE, (r + 1) * SNAKE_SIZE, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
         }
 
-        // ציור אוכל עם פעימה וברק מבוססי זמן אמת
-        long time = System.currentTimeMillis();
-        float pulse = (float) Math.sin(time * 0.01) * 5;
-        
-        // תמיד מציירים אוכל רגיל - אדום
+        // ציור מכשולים (כחול בולט כמו בתמונה)
+        for (int[] wall : obstacles) {
+            paint.setColor(Color.parseColor("#0066ff"));
+            drawRoundRectCompat(canvas, wall[0] + 1, wall[1] + 1, wall[0] + SNAKE_SIZE - 1, wall[1] + SNAKE_SIZE - 1, 4, paint);
+            paint.setColor(Color.parseColor("#004db3"));
+            canvas.drawRect(wall[0] + 4, wall[1] + 4, wall[0] + SNAKE_SIZE - 4, wall[1] + 8, paint);
+        }
+
+        // ציור אוכל (תפוח אדום עם עלה כמו בתמונה)
         paint.setColor(Color.RED);
-        drawRoundRectCompat(canvas, foodX + 6 - pulse, foodY + 8 - pulse, foodX + SNAKE_SIZE - 6 + pulse, foodY + SNAKE_SIZE - 2 + pulse, 12, paint);
-        paint.setColor(Color.WHITE); // ברק
-        canvas.drawCircle(foodX + SNAKE_SIZE * 0.3f, foodY + SNAKE_SIZE * 0.4f, 3, paint);
-        paint.setColor(Color.parseColor("#32CD32")); // עלה
-        canvas.drawRect(foodX + SNAKE_SIZE/2f, foodY + 2, foodX + SNAKE_SIZE/2f + 4, foodY + 8, paint);
+        drawRoundRectCompat(canvas, foodX + 4, foodY + 6, foodX + SNAKE_SIZE - 4, foodY + SNAKE_SIZE - 2, 12, paint);
+        // העלה הירוק
+        paint.setColor(Color.parseColor("#32CD32"));
+        canvas.drawRect(foodX + SNAKE_SIZE/2f - 2, foodY + 2, foodX + SNAKE_SIZE/2f + 2, foodY + 8, paint);
+        // ברק על התפוח
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(foodX + SNAKE_SIZE * 0.35f, foodY + SNAKE_SIZE * 0.45f, 2, paint);
 
         if (isSpecialFoodActive) {
-            // אוכל מיוחד - זהוב, מנצנץ ויוקרתי
             paint.setColor(Color.parseColor("#FFD700"));
-            drawRoundRectCompat(canvas, specialFoodX + 2 - pulse, specialFoodY + 2 - pulse, specialFoodX + SNAKE_SIZE - 2 + pulse, specialFoodY + SNAKE_SIZE - 2 + pulse, 15, paint);
+            drawRoundRectCompat(canvas, specialFoodX + 2, specialFoodY + 2, specialFoodX + SNAKE_SIZE - 2, specialFoodY + SNAKE_SIZE - 2, 15, paint);
             
-            // הילה זהובה חיצונית
+            // הילה זהובה חיצונית (זהב מנצנץ)
+            long time = System.currentTimeMillis();
+            float pulse = (float) Math.sin(time * 0.01) * 3;
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(4);
+            paint.setStrokeWidth(2);
             paint.setColor(Color.argb(180, 255, 215, 0));
-            canvas.drawCircle(specialFoodX + SNAKE_SIZE/2f, specialFoodY + SNAKE_SIZE/2f, SNAKE_SIZE/2f + pulse * 1.5f + 5, paint);
-            
-            // ניצוצות מסתובבים (אפקט חלקיקים)
+            canvas.drawCircle(specialFoodX + SNAKE_SIZE/2f, specialFoodY + SNAKE_SIZE/2f, SNAKE_SIZE/2f + pulse + 2, paint);
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.WHITE);
-            float angle = (time % 1000) / 1000f * 360;
-            for (int i = 0; i < 4; i++) {
-                double rad = Math.toRadians(angle + (i * 90));
-                float sx = (float) (specialFoodX + SNAKE_SIZE/2f + Math.cos(rad) * (SNAKE_SIZE/1.5f));
-                float sy = (float) (specialFoodY + SNAKE_SIZE/2f + Math.sin(rad) * (SNAKE_SIZE/1.5f));
-                canvas.drawCircle(sx, sy, 3, paint);
-            }
-
-            // סטופר עליון (פס זמן מתחת לניקוד)
-            float timerWidth = screenWidth * 0.5f;
-            float timerX = (screenWidth - timerWidth) / 2f;
-            float timerY = SNAKE_SIZE * 0.8f; // מיקום בתוך ה-Header
-            
-            // רקע הסטופר (כהה שקוף)
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(Color.argb(80, 0, 0, 0));
-            drawRoundRectCompat(canvas, timerX, timerY, timerX + timerWidth, timerY + 12, 6, paint);
-            
-            // מילוי הסטופר (זהב נוצץ)
-            paint.setColor(Color.parseColor("#FFD700"));
-            float currentProgress = (specialFoodTimer / 45f) * timerWidth;
-            drawRoundRectCompat(canvas, timerX, timerY, timerX + currentProgress, timerY + 12, 6, paint);
-            
-            // טיימר ספרתי בפורמט 0.00
-            paint.setTextSize(SNAKE_SIZE * 0.5f);
-            paint.setFakeBoldText(true);
-            paint.setColor(Color.WHITE);
-            // חישוב שניות משוער (לפי קצב רענון ממוצע של 80-100ms)
-            double secondsLeft = specialFoodTimer * 0.08; 
-            @SuppressLint("DefaultLocale") String timeStr = String.format("%.2f", secondsLeft);
-            canvas.drawText(timeStr, timerX + timerWidth + 15, timerY + 10, paint);
-            paint.setFakeBoldText(false);
         }
         
-        paint.setStyle(Paint.Style.FILL);
-        paint.setAlpha(255);
-
-        // ציור הנחש
+        // ציור הנחש (צהוב-כתום יוקרתי כמו בתמונה)
         for (int i = 0; i < snakeParts.size(); i++) {
             int[] p = snakeParts.get(i);
             if (i == 0) {
-                // ראש לבן ובוהק
-                paint.setColor(Color.WHITE);
+                // ראש עם פנים
+                paint.setColor(Color.parseColor("#FFCC00"));
                 drawRoundRectCompat(canvas, p[0] + 1, p[1] + 1, p[0] + SNAKE_SIZE - 1, p[1] + SNAKE_SIZE - 1, 8, paint);
                 
-                // עיניים זזות
+                // עיניים ופה לכיוון הנסיעה
                 paint.setColor(Color.BLACK);
-                float eS = SNAKE_SIZE / 10f;
-                float o = SNAKE_SIZE * 0.2f; // Offset
-                if (currentDirection == 3) { // ימינה
-                    canvas.drawCircle(p[0] + SNAKE_SIZE - o, p[1] + o, eS, paint);
-                    canvas.drawCircle(p[0] + SNAKE_SIZE - o, p[1] + SNAKE_SIZE - o, eS, paint);
+                float eyeSize = SNAKE_SIZE * 0.12f;
+                float frontOffset = SNAKE_SIZE * 0.25f;
+                float sideOffset = SNAKE_SIZE * 0.25f;
+                float mouthOffset = SNAKE_SIZE * 0.65f;
+                
+                float e1x, e1y, e2x, e2y, mx, my;
+                float startAngle;
+
+                if (currentDirection == 0) { // למעלה
+                    e1x = p[0] + sideOffset; e1y = p[1] + frontOffset;
+                    e2x = p[0] + SNAKE_SIZE - sideOffset; e2y = p[1] + frontOffset;
+                    mx = p[0] + SNAKE_SIZE / 2f; my = p[1] + mouthOffset;
+                    startAngle = 45;
+                } else if (currentDirection == 1) { // למטה
+                    e1x = p[0] + sideOffset; e1y = p[1] + SNAKE_SIZE - frontOffset;
+                    e2x = p[0] + SNAKE_SIZE - sideOffset; e2y = p[1] + SNAKE_SIZE - frontOffset;
+                    mx = p[0] + SNAKE_SIZE / 2f; my = p[1] + SNAKE_SIZE - mouthOffset;
+                    startAngle = 225;
                 } else if (currentDirection == 2) { // שמאלה
-                    canvas.drawCircle(p[0] + o, p[1] + o, eS, paint);
-                    canvas.drawCircle(p[0] + o, p[1] + SNAKE_SIZE - o, eS, paint);
-                } else if (currentDirection == 0) { // למעלה
-                    canvas.drawCircle(p[0] + o, p[1] + o, eS, paint);
-                    canvas.drawCircle(p[0] + SNAKE_SIZE - o, p[1] + o, eS, paint);
-                } else { // למטה
-                    canvas.drawCircle(p[0] + o, p[1] + SNAKE_SIZE - o, eS, paint);
-                    canvas.drawCircle(p[0] + SNAKE_SIZE - o, p[1] + SNAKE_SIZE - o, eS, paint);
+                    e1x = p[0] + frontOffset; e1y = p[1] + sideOffset;
+                    e2x = p[0] + frontOffset; e2y = p[1] + SNAKE_SIZE - sideOffset;
+                    mx = p[0] + mouthOffset; my = p[1] + SNAKE_SIZE / 2f;
+                    startAngle = 315;
+                } else { // ימינה (3)
+                    e1x = p[0] + SNAKE_SIZE - frontOffset; e1y = p[1] + sideOffset;
+                    e2x = p[0] + SNAKE_SIZE - frontOffset; e2y = p[1] + SNAKE_SIZE - sideOffset;
+                    mx = p[0] + SNAKE_SIZE - mouthOffset; my = p[1] + SNAKE_SIZE / 2f;
+                    startAngle = 135;
                 }
+
+                canvas.drawCircle(e1x, e1y, eyeSize, paint);
+                canvas.drawCircle(e2x, e2y, eyeSize, paint);
+                
+                // חיוך קטן - תמיד מאחורי העיניים
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2);
+                float mouthRadius = SNAKE_SIZE * 0.15f;
+                android.graphics.RectF mouthRect = new android.graphics.RectF(mx - mouthRadius, my - mouthRadius, mx + mouthRadius, my + mouthRadius);
+                canvas.drawArc(mouthRect, startAngle, 90, false, paint);
+                paint.setStyle(Paint.Style.FILL);
             } else {
-                // גוף בגווני טורקיז עם חיבורים
-                paint.setColor(Color.parseColor(i % 2 == 0 ? "#E0F7FA" : "#B2EBF2"));
+                // גוף צהוב עם הצללה עדינה
+                paint.setColor(Color.parseColor(i % 2 == 0 ? "#FFD700" : "#FFC107"));
                 drawRoundRectCompat(canvas, p[0] + 2, p[1] + 2, p[0] + SNAKE_SIZE - 2, p[1] + SNAKE_SIZE - 2, 6, paint);
             }
         }
-
-        // אפקט LCD - קווי סריקה דקים מאוד
-        paint.setColor(Color.BLACK);
-        paint.setAlpha(15);
-        for (int i = 0; i < screenHeight; i += 6) {
-            canvas.drawLine(0, i, screenWidth, i, paint);
-        }
-        paint.setAlpha(255);
-
-        // ניקוד
-        if (isNewHighScoreSession) {
-            paint.setColor(Color.YELLOW);
-            paint.setTextSize(SNAKE_SIZE * 0.8f);
-            String msg = t(R.string.new_record_heb, R.string.new_record_eng);
-            canvas.drawText(msg, screenWidth/2f - paint.measureText(msg)/2f, SNAKE_SIZE * 2.8f, paint);
-            paint.setColor(Color.YELLOW);
-        } else {
-            paint.setColor(Color.WHITE);
-        }
         
-        paint.setTextSize(SNAKE_SIZE * 1.5f);
+        canvas.restore();
+
+        // ניקוד (במרכז למעלה, גדול ולבן)
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(SNAKE_SIZE * 2f);
         paint.setFakeBoldText(true);
-        canvas.drawText("" + score, screenWidth/2f - paint.measureText("" + score)/2f, SNAKE_SIZE * 1.8f, paint);
+        String scoreStr = "" + score;
+        canvas.drawText(scoreStr, screenWidth/2f - paint.measureText(scoreStr)/2f, SNAKE_SIZE * 1.6f, paint);
         paint.setFakeBoldText(false);
 
-        if (currentState == GameState.PAUSED) {
-            paint.setColor(Color.argb(150, 0, 0, 0));
-            canvas.drawRect(0, 0, screenWidth, screenHeight, paint);
-            paint.setColor(Color.parseColor("#3399FF"));
-            canvas.drawRect(screenWidth * 0.15f, screenHeight/2f - SNAKE_SIZE * 1.5f, screenWidth * 0.85f, screenHeight/2f + SNAKE_SIZE * 1.5f, paint);
+        // סטופר לאוכל מיוחד (פס התקדמות מתחת לניקוד)
+        if (isSpecialFoodActive) {
+            float timerWidth = screenWidth * 0.5f;
+            float timerX = (screenWidth - timerWidth) / 2f;
+            float timerY = SNAKE_SIZE * 1.8f;
+            
+            paint.setColor(Color.argb(100, 0, 0, 0));
+            canvas.drawRect(timerX, timerY, timerX + timerWidth, timerY + 8, paint);
+            
+            paint.setColor(Color.parseColor("#FFD700"));
+            float currentProgress = (specialFoodTimer / 5000f) * timerWidth;
+            canvas.drawRect(timerX, timerY, timerX + currentProgress, timerY + 8, paint);
+            
+            // טיימר ספרתי קטן
+            paint.setTextSize(SNAKE_SIZE * 0.5f);
             paint.setColor(Color.WHITE);
+            @SuppressLint("DefaultLocale") String timeStr = String.format("%.2f", specialFoodTimer / 1000.0);
+            canvas.drawText(timeStr, timerX + timerWidth + 10, timerY + 7, paint);
+        }
+
+        // מסך השהיה (טקסט ורוד על רקע כחול שקוף כמו בתמונה)
+        if (currentState == GameState.PAUSED) {
+            paint.setColor(Color.argb(160, 0, 51, 102));
+            canvas.drawRect(screenWidth * 0.1f, screenHeight/2f - SNAKE_SIZE * 2, screenWidth * 0.9f, screenHeight/2f + SNAKE_SIZE * 2, paint);
+            
+            paint.setColor(Color.parseColor("#FF6699")); // ורוד-אדמדם
+            paint.setTextSize(SNAKE_SIZE * 1.5f);
             String txt = t(R.string.paused_heb, R.string.paused_eng);
-            canvas.drawText(txt, screenWidth/2f - paint.measureText(txt)/2f, screenHeight/2f + SNAKE_SIZE * 0.4f, paint);
+            canvas.drawText(txt, screenWidth/2f - paint.measureText(txt)/2f, screenHeight/2f + SNAKE_SIZE * 0.5f, paint);
         }
     }
 
     private void drawHighScores(Canvas canvas) {
         drawNokiaHeader(canvas, t(R.string.menu_high_score_heb, R.string.menu_high_score_eng));
-        paint.setColor(Color.WHITE); paint.setTextSize(SNAKE_SIZE * 1.2f);
-        canvas.drawText(t(R.string.best_score_heb, R.string.best_score_eng) + highScore, SNAKE_SIZE, SNAKE_SIZE * 5, paint);
+        paint.setColor(Color.WHITE);
+        
+        if (highScores.isEmpty()) {
+            paint.setTextSize(SNAKE_SIZE * 0.8f);
+            String noScores = currentLanguage == Language.HEBREW ? "אין שיאים עדיין" : "No high scores yet";
+            canvas.drawText(noScores, SNAKE_SIZE, SNAKE_SIZE * 5, paint);
+        } else {
+            paint.setTextSize(SNAKE_SIZE * 1.0f);
+            float startY = SNAKE_SIZE * 4.5f;
+            for (int i = 0; i < highScores.size(); i++) {
+                String rank = (i + 1) + ". ";
+                String scoreText = rank + highScores.get(i);
+                
+                // שימוש בגווני זהב/כסף/ארד ל-3 הראשונים
+                if (i == 0) paint.setColor(Color.parseColor("#FFD700")); // זהב
+                else if (i == 1) paint.setColor(Color.parseColor("#C0C0C0")); // כסף
+                else if (i == 2) paint.setColor(Color.parseColor("#CD7F32")); // ארד
+                else paint.setColor(Color.WHITE);
+                
+                float xPos = (currentLanguage == Language.HEBREW) ? 
+                             screenWidth - paint.measureText(scoreText) - SNAKE_SIZE : 
+                             SNAKE_SIZE;
+                
+                canvas.drawText(scoreText, xPos, startY + (i * SNAKE_SIZE * 1.3f), paint);
+            }
+        }
         drawNokiaFooter(canvas, null);
     }
 
     private void drawAbout(Canvas canvas) {
         drawNokiaHeader(canvas, t(R.string.menu_about_heb, R.string.menu_about_eng));
-        paint.setColor(Color.WHITE); paint.setTextSize(SNAKE_SIZE * 0.8f);
-        canvas.drawText("Snake Pro Nokia Style", SNAKE_SIZE, SNAKE_SIZE * 4, paint);
-        canvas.drawText("Developed by The Creator YT", SNAKE_SIZE, SNAKE_SIZE * 6, paint);
+        
+        // רקע מעוצב לאודות
+        paint.setColor(Color.argb(40, 255, 255, 255));
+        drawRoundRectCompat(canvas, SNAKE_SIZE * 0.5f, SNAKE_SIZE * 2.5f, screenWidth - SNAKE_SIZE * 0.5f, screenHeight - SNAKE_SIZE * 3, 15, paint);
+
+        paint.setColor(Color.WHITE);
+        float startY = SNAKE_SIZE * 3.8f;
+        float lineSpacing = SNAKE_SIZE * 1.1f;
+
+        String[][] aboutLines = {
+            { "SNAKE PRO - Nokia Edition", "סנייק פרו - מהדורת נוקיה" },
+            { "Version 1.5.0", "גרסה 1.5.0" },
+            { "----------------------", "----------------------" },
+            { "Developed by:", "פותח על ידי:" },
+            { "The Creator YT", "The Creator YT" },
+            { "----------------------", "----------------------" },
+            { "Classic arcade experience", "חוויית משחק קלאסית" },
+            { "Optimized for Qin 1S+ & Jelly 2", "מותאם ל-Qin 1S+ ול- ועוד...Jelly 2" }
+        };
+
+        for (int i = 0; i < aboutLines.length; i++) {
+            String text = (currentLanguage == Language.HEBREW) ? aboutLines[i][1] : aboutLines[i][0];
+            
+            // עיצוב כותרות בתוך האודות
+            if (i == 0 || i == 3) {
+                paint.setFakeBoldText(true);
+                paint.setTextSize(SNAKE_SIZE * 0.85f);
+                paint.setColor(Color.parseColor("#00bcd4"));
+            } else {
+                paint.setFakeBoldText(false);
+                paint.setTextSize(SNAKE_SIZE * 0.75f);
+                paint.setColor(Color.WHITE);
+            }
+
+            float xPos = (currentLanguage == Language.HEBREW) ? 
+                         screenWidth - paint.measureText(text) - SNAKE_SIZE * 1.2f : 
+                         SNAKE_SIZE * 1.2f;
+                         
+            canvas.drawText(text, xPos, startY + (i * lineSpacing), paint);
+        }
+        
+        paint.setFakeBoldText(false);
         drawNokiaFooter(canvas, null);
     }
 
@@ -613,6 +832,12 @@ public class SnakeView extends SurfaceView implements Runnable {
         drawNokiaHeader(canvas, t(R.string.game_over_heb, R.string.game_over_eng));
         paint.setColor(Color.WHITE); paint.setTextSize(SNAKE_SIZE * 1.5f);
         canvas.drawText(t(R.string.score_label_heb, R.string.score_label_eng) + score, SNAKE_SIZE, screenHeight/2f, paint);
+        
+        // סימון כפתור נבחר ב-Game Over
+        paint.setColor(Color.parseColor("#3399FF"));
+        float btnX = (selectedMenuItem == 0) ? SNAKE_SIZE : screenWidth - SNAKE_SIZE * 5;
+        canvas.drawRect(btnX - 5, screenHeight - SNAKE_SIZE * 2.2f, btnX + paint.measureText(t(R.string.btn_retry_heb, R.string.btn_retry_eng)) + 10, screenHeight - SNAKE_SIZE * 0.8f, paint);
+        
         drawNokiaFooter(canvas, t(R.string.btn_retry_heb, R.string.btn_retry_eng));
     }
 
@@ -655,6 +880,24 @@ public class SnakeView extends SurfaceView implements Runnable {
         }
     }
 
+    private void handleMenuSelection(int index) {
+        int itemIndex = index;
+        if (isResumable) {
+            if (itemIndex == 0) { 
+                currentState = GameState.PAUSED;
+                return; 
+            }
+            itemIndex--;
+        }
+        
+        if (itemIndex == 0) { resetGame(); currentState = GameState.PLAYING; }
+        else if (itemIndex == 1) { currentState = GameState.MAP_SELECT; selectedMenuItem = currentMap.ordinal(); }
+        else if (itemIndex == 2) { currentState = GameState.SPEED_SELECT; }
+        else if (itemIndex == 3) { currentState = GameState.SETTINGS; selectedMenuItem = 0; }
+        else if (itemIndex == 4) { currentState = GameState.HIGH_SCORES; }
+        else if (itemIndex == 5) { currentState = GameState.ABOUT; }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     @Override
     public boolean onTouchEvent(MotionEvent event) {
@@ -662,11 +905,16 @@ public class SnakeView extends SurfaceView implements Runnable {
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             touchStartX = x; touchStartY = y; swipeTriggered = false;
             
-            // בדיקת לחיצה על כפתור "חזור" (צד ימין למטה)
-            if (x > screenWidth - SNAKE_SIZE * 5 && y > screenHeight - SNAKE_SIZE * 3) {
-                if (currentState == GameState.PLAYING) {
-                    currentState = GameState.PAUSED;
-                } else if (currentState == GameState.MENU) {
+            // בדיקת לחיצה על כפתור "חזור" - מיקום משתנה לפי השפה
+            boolean isBackClicked;
+            if (currentLanguage == Language.HEBREW) {
+                isBackClicked = x < SNAKE_SIZE * 5 && y > screenHeight - SNAKE_SIZE * 3;
+            } else {
+                isBackClicked = x > screenWidth - SNAKE_SIZE * 5 && y > screenHeight - SNAKE_SIZE * 3;
+            }
+
+            if (currentState != GameState.PLAYING && isBackClicked) {
+                if (currentState == GameState.MENU) {
                     // אם בתפריט הראשי, יוצאים מהאפליקציה
                     if (getContext() instanceof android.app.Activity) {
                         ((android.app.Activity) getContext()).finish();
@@ -679,11 +927,8 @@ public class SnakeView extends SurfaceView implements Runnable {
             }
 
             if (currentState == GameState.MENU) {
-                // חישוב המיקום המדויק של תחילת התפריט (logoY + 4.5*SNAKE_SIZE - SNAKE_SIZE)
                 float menuYStart = SNAKE_SIZE * 6.0f; 
                 selectedMenuItem = (int) ((y - menuYStart) / (SNAKE_SIZE * 1.5f));
-                
-                // הגנה מפני בחירה מחוץ לטווח
                 if (y < menuYStart) selectedMenuItem = -1;
                 return true;
             }
@@ -698,32 +943,36 @@ public class SnakeView extends SurfaceView implements Runnable {
                     prefs.edit().putInt("speed_level", speedLevel).apply();
                 }
             } else if (currentState == GameState.SETTINGS) {
-                if (y > SNAKE_SIZE * 3 && y < SNAKE_SIZE * 5) { currentLanguage = (currentLanguage == Language.HEBREW) ? Language.ENGLISH : Language.HEBREW; prefs.edit().putInt("language", currentLanguage.ordinal()).apply(); }
-                else if (y > SNAKE_SIZE * 5 && y < SNAKE_SIZE * 7) { vibrationEnabled = !vibrationEnabled; prefs.edit().putBoolean("vibration_enabled", vibrationEnabled).apply(); if (vibrationEnabled) vibrator.vibrate(50); }
-            } else if (currentState == GameState.PAUSED || currentState == GameState.GAME_OVER) {
-                if (currentState == GameState.GAME_OVER && x < screenWidth/2f) { resetGame(); currentState = GameState.PLAYING; }
-                else currentState = GameState.PLAYING;
+                if (y > SNAKE_SIZE * 3 && y < SNAKE_SIZE * 5) { 
+                    currentLanguage = (currentLanguage == Language.HEBREW) ? Language.ENGLISH : Language.HEBREW; 
+                    prefs.edit().putInt("language", currentLanguage.ordinal()).apply(); 
+                }
+                else if (y > SNAKE_SIZE * 5 && y < SNAKE_SIZE * 7) { 
+                    vibrationEnabled = !vibrationEnabled; 
+                    prefs.edit().putBoolean("vibration_enabled", vibrationEnabled).apply(); 
+                    if (vibrationEnabled) vibrator.vibrate(50); 
+                }
+            } else if (currentState == GameState.PAUSED) {
+                currentState = GameState.PLAYING;
+            } else if (currentState == GameState.GAME_OVER) {
+                boolean isRetryClicked;
+                if (currentLanguage == Language.HEBREW) {
+                    isRetryClicked = x > screenWidth / 2f;
+                } else {
+                    isRetryClicked = x < screenWidth / 2f;
+                }
+
+                if (isRetryClicked) {
+                    resetGame();
+                    currentState = GameState.PLAYING;
+                } else {
+                    currentState = GameState.MENU;
+                }
             }
             return true;
         } else if (event.getAction() == MotionEvent.ACTION_UP) {
             if (currentState == GameState.MENU && selectedMenuItem != -1) {
-                int itemIndex = selectedMenuItem;
-                selectedMenuItem = -1; // איפוס הבחירה
-
-                if (isResumable) {
-                    if (itemIndex == 0) { 
-                        currentState = GameState.PAUSED; // טוען למסך השהיה במקום להתחיל מיד
-                        return true; 
-                    }
-                    itemIndex--;
-                }
-                
-                if (itemIndex == 0) { resetGame(); currentState = GameState.PLAYING; }
-                else if (itemIndex == 1) currentState = GameState.MAP_SELECT;
-                else if (itemIndex == 2) currentState = GameState.SPEED_SELECT;
-                else if (itemIndex == 3) currentState = GameState.SETTINGS;
-                else if (itemIndex == 4) currentState = GameState.HIGH_SCORES;
-                else if (itemIndex == 5) currentState = GameState.ABOUT;
+                handleMenuSelection(selectedMenuItem);
                 vibrate(20);
             }
             return true;
@@ -731,8 +980,8 @@ public class SnakeView extends SurfaceView implements Runnable {
             if (currentState != GameState.PLAYING || swipeTriggered) return true;
             float dx = x - touchStartX; float dy = y - touchStartY;
             if (Math.abs(dx) > SNAKE_SIZE * 0.8f || Math.abs(dy) > SNAKE_SIZE * 0.8f) {
-                int nD = -1; if (Math.abs(dx) > Math.abs(dy)) nD = (dx > 0) ? 3 : 2; else nD = (dy > 0) ? 1 : 0;
-                if (nD != -1 && directionQueue.size() < 2) { directionQueue.add(nD); swipeTriggered = true; }
+                int nD; if (Math.abs(dx) > Math.abs(dy)) nD = (dx > 0) ? 3 : 2; else nD = (dy > 0) ? 1 : 0;
+                if (directionQueue.size() < 2) { directionQueue.add(nD); swipeTriggered = true; }
             }
             return true;
         }
@@ -741,32 +990,145 @@ public class SnakeView extends SurfaceView implements Runnable {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
+        // מיפוי כפתורי Soft Keys (שמאל וימין למעלה) וכפתור תפריט
+        boolean isSoftLeft = (keyCode == KeyEvent.KEYCODE_SOFT_LEFT || keyCode == KeyEvent.KEYCODE_MENU);
+        boolean isSoftRight = (keyCode == KeyEvent.KEYCODE_SOFT_RIGHT || keyCode == KeyEvent.KEYCODE_BACK);
+        boolean isActionKey = (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || isSoftLeft);
+
+        if (isSoftRight) {
             if (currentState == GameState.PLAYING) {
                 currentState = GameState.PAUSED;
+                vibrate(20);
                 return true;
             } else if (currentState == GameState.MENU) {
-                // מאפשר למערכת לטפל בלחיצה (יציאה מהאפליקציה)
-                return false;
+                return keyCode != KeyEvent.KEYCODE_BACK; // נותן למערכת לטפל ב-Back כדי לצאת מהאפליקציה
             } else {
-                // חוזר לתפריט הראשי מכל מסך אחר (הגדרות, מפות וכו')
                 currentState = GameState.MENU;
+                selectedMenuItem = 0;
+                vibrate(20);
                 return true;
             }
         }
+
+        // ניווט בתפריטים באמצעות כפתורים
+        if (currentState != GameState.PLAYING && currentState != GameState.PAUSED) {
+            int itemCount;
+            switch (currentState) {
+                case MENU:
+                    itemCount = (isResumable ? 7 : 6);
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                        selectedMenuItem = (selectedMenuItem <= 0) ? itemCount - 1 : selectedMenuItem - 1;
+                        vibrate(10);
+                        return true;
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                        selectedMenuItem = (selectedMenuItem >= itemCount - 1) ? 0 : selectedMenuItem + 1;
+                        vibrate(10);
+                        return true;
+                    } else if (isActionKey) {
+                        handleMenuSelection(selectedMenuItem);
+                        vibrate(20);
+                        return true;
+                    }
+                    break;
+                case MAP_SELECT:
+                    itemCount = MapType.values().length;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                        int nextMap = (currentMap.ordinal() == 0) ? itemCount - 1 : currentMap.ordinal() - 1;
+                        currentMap = MapType.values()[nextMap];
+                        prefs.edit().putInt("map_type", nextMap).apply();
+                        vibrate(10);
+                        return true;
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                        int nextMap = (currentMap.ordinal() >= itemCount - 1) ? 0 : currentMap.ordinal() + 1;
+                        currentMap = MapType.values()[nextMap];
+                        prefs.edit().putInt("map_type", nextMap).apply();
+                        vibrate(10);
+                        return true;
+                    } else if (isActionKey) {
+                        currentState = GameState.MENU;
+                        vibrate(20);
+                        return true;
+                    }
+                    break;
+                case SPEED_SELECT:
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        speedLevel = Math.max(0, speedLevel - 1);
+                        prefs.edit().putInt("speed_level", speedLevel).apply();
+                        vibrate(10);
+                        return true;
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        speedLevel = Math.min(7, speedLevel + 1);
+                        prefs.edit().putInt("speed_level", speedLevel).apply();
+                        vibrate(10);
+                        return true;
+                    } else if (isActionKey) {
+                        currentState = GameState.MENU;
+                        vibrate(20);
+                        return true;
+                    }
+                    break;
+                case SETTINGS:
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                        selectedMenuItem = (selectedMenuItem == 0) ? 1 : 0; 
+                        vibrate(10);
+                        return true;
+                    } else if (isActionKey) {
+                        if (selectedMenuItem == 0) {
+                            currentLanguage = (currentLanguage == Language.HEBREW) ? Language.ENGLISH : Language.HEBREW;
+                            prefs.edit().putInt("language", currentLanguage.ordinal()).apply();
+                        } else {
+                            vibrationEnabled = !vibrationEnabled;
+                            prefs.edit().putBoolean("vibration_enabled", vibrationEnabled).apply();
+                            if (vibrationEnabled) vibrate(50);
+                        }
+                        vibrate(20);
+                        return true;
+                    }
+                    break;
+                case GAME_OVER:
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        selectedMenuItem = (selectedMenuItem == 0) ? 1 : 0; 
+                        vibrate(10);
+                        return true;
+                    } else if (isActionKey) {
+                        if (selectedMenuItem == 0) { resetGame(); currentState = GameState.PLAYING; }
+                        else currentState = GameState.MENU;
+                        vibrate(20);
+                        return true;
+                    }
+                    break;
+                default:
+                    if (isActionKey) {
+                        currentState = GameState.MENU;
+                        vibrate(20);
+                        return true;
+                    }
+            }
+        }
+
         if (currentState == GameState.PLAYING) {
             int nD;
             switch (keyCode) {
-                case KeyEvent.KEYCODE_DPAD_UP: nD = 0; break; 
-                case KeyEvent.KEYCODE_DPAD_DOWN: nD = 1; break;
-                case KeyEvent.KEYCODE_DPAD_LEFT: nD = 2; break; 
-                case KeyEvent.KEYCODE_DPAD_RIGHT: nD = 3; break;
-                case KeyEvent.KEYCODE_P: currentState = GameState.PAUSED; return true;
+                case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_2: nD = 0; break; 
+                case KeyEvent.KEYCODE_DPAD_DOWN: case KeyEvent.KEYCODE_8: nD = 1; break;
+                case KeyEvent.KEYCODE_DPAD_LEFT: case KeyEvent.KEYCODE_4: nD = 2; break; 
+                case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_6: nD = 3; break;
+                case KeyEvent.KEYCODE_SOFT_LEFT: case KeyEvent.KEYCODE_MENU: case KeyEvent.KEYCODE_P: case KeyEvent.KEYCODE_5:
+                    currentState = GameState.PAUSED; 
+                    vibrate(20);
+                    return true;
                 default: return super.onKeyDown(keyCode, event);
             }
             if (directionQueue.size() < 2) { directionQueue.add(nD); }
             return true;
         }
+
+        if (currentState == GameState.PAUSED && isActionKey) {
+            currentState = GameState.PLAYING;
+            vibrate(20);
+            return true;
+        }
+
         return super.onKeyDown(keyCode, event);
     }
 
