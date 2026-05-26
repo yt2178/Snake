@@ -800,7 +800,7 @@ public class SnakeView extends SurfaceView implements Runnable {
             { "The Creator YT", "The Creator YT" },
             { "----------------------", "----------------------" },
             { "Classic arcade experience", "חוויית משחק קלאסית" },
-            { "Optimized for Qin 1S+ & Jelly 2", "מותאם ל-Qin 1S+ ול- ועוד...Jelly 2" }
+            { "Optimized for Qin 1S+ & Jelly 2", "מותאם ל-Qin 1S+ ול-Jelly 2" }
         };
 
         for (int i = 0; i < aboutLines.length; i++) {
